@@ -7,8 +7,8 @@ PySide6 UI — Turkish / English, dark / light theme.
 
 ## Features
 
-- Scale **2x / 3x**
-- Models: **Fast** (animevideov3) / **Quality** (x4plus, slower) — scale (2x/3x) sets output size, not the model name
+- Scale: **photos 4x** (fixed) · **video/GIF 2x / 3x**
+- Models: **Fast** (animevideov3) / **Quality** (x4plus; for video 2x/3x runs native 4x then downscales)
 - Audio boost: Off / Auto / +25% / +50% / +100%
 - Output FPS: Original / 30fps / 60fps
 - Completion sound

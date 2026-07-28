@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -143,6 +144,35 @@ BENCHMARKS = {
     "quality": {"model": "realesrgan-x4plus", "seconds_per_frame": 37.0, "ref_px": 950 * 718},
 }
 
+# ncnn-vulkan'da bu modeller yalniz native 4x agina sahip. -s 2/3 verilirse
+# karo (tile) birlestirme bozulur ve mozaik artefakti olusur. Native 4x calistirip
+# hedef olcege ffmpeg ile indirmek gerekir (Python Real-ESRGAN outscale mantigi).
+FIXED_NATIVE_SCALE = {
+    "realesrgan-x4plus": 4,
+    "realesrgan-x4plus-anime": 4,
+    "realesrnet-x4plus": 4,
+}
+
+
+def engine_scale_for(model, requested_scale):
+    """Real-ESRGAN -s degeri: model native olcegi varsa onu kullan."""
+    native = FIXED_NATIVE_SCALE.get(model)
+    return int(native if native is not None else requested_scale)
+
+
+def needs_post_downscale(model, requested_scale):
+    native = FIXED_NATIVE_SCALE.get(model)
+    return native is not None and int(requested_scale) != int(native)
+
+
+def even_dim(value):
+    value = int(value)
+    return value if value % 2 == 0 else value - 1
+
+
+def target_size(info, scale):
+    return even_dim(info["width"] * scale), even_dim(info["height"] * scale)
+
 NO_CREATE_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 # GPU/surucu bazi kare-kombinasyonlarinda ncnn-vulkan'i tik sikici bir sekilde
@@ -168,8 +198,10 @@ STRINGS = {
         "section_fps": "FPS",
         "model_hd": "Hızlı",
         "model_4k": "Kaliteli",
-        "model_hd_tip": "Hızlı model (animevideov3) — dakikalar sürer; çıktı boyutu BÜYÜTME ile belirlenir",
-        "model_4k_tip": "Yüksek detay (x4plus) — daha yavaş, daha keskin; çıktı boyutu BÜYÜTME ile belirlenir",
+        "model_hd_tip": "Hızlı model (animevideov3) — video 2x/3x native; foto her zaman 4x",
+        "model_4k_tip": "Yüksek detay (x4plus) — foto 4x native; videoda 4x sonrası 2x/3x'e indirilir",
+        "scale_photo_tip": "Fotoğraflar her zaman 4x büyütülür (model native ölçeği)",
+        "scale_video_tip": "Video / GIF için 2x veya 3x",
         "audio_off": "Kapalı",
         "audio_auto": "Otomatik",
         "audio_25": "+%25",
@@ -204,6 +236,7 @@ STRINGS = {
             "artefaktı görülebilir.</span>"
         ),
         "photo": "Fotoğraf",
+        "clear_file": "Dosyayı kaldır",
         "missing_title": "PixLift - Eksik bileşen",
         "missing_body": "Şu araçlar bulunamadı, PixLift çalışamaz:\n",
         "read_fail": "okunamadı",
@@ -219,8 +252,10 @@ STRINGS = {
         "section_fps": "FPS",
         "model_hd": "Fast",
         "model_4k": "Quality",
-        "model_hd_tip": "Fast model (animevideov3) — minutes; output size is set by SCALE",
-        "model_4k_tip": "High detail (x4plus) — slower, sharper; output size is set by SCALE",
+        "model_hd_tip": "Fast model (animevideov3) — native 2x/3x for video; photos always 4x",
+        "model_4k_tip": "High detail (x4plus) — photos at native 4x; video runs 4x then downscales to 2x/3x",
+        "scale_photo_tip": "Photos always upscale at 4x (model native scale)",
+        "scale_video_tip": "2x or 3x for video / GIF",
         "audio_off": "Off",
         "audio_auto": "Auto",
         "audio_25": "+25%",
@@ -254,6 +289,7 @@ STRINGS = {
             "Fast model + 3x may show block artifacts in dark areas.</span>"
         ),
         "photo": "Photo",
+        "clear_file": "Clear file",
         "missing_title": "PixLift - Missing tools",
         "missing_body": "These tools were not found; PixLift cannot run:\n",
         "read_fail": "could not be read",
@@ -365,6 +401,32 @@ def build_stylesheet(theme):
         border-color: {accent};
         color: {c['text']};
         font-weight: 600;
+    }}
+    QFrame#dropZoneFrame {{
+        background: transparent;
+        border: none;
+    }}
+    QFrame#dropZoneFrame[dragOver="true"] QLabel#dropZone {{
+        border-color: {accent};
+        background: {c['input_bg']};
+    }}
+    QPushButton#clearFileButton {{
+        background: transparent;
+        border: none;
+        color: {c['muted']};
+        font-size: 18px;
+        font-weight: 700;
+        padding: 0;
+        margin: 6px;
+        min-width: 28px;
+        max-width: 28px;
+        min-height: 28px;
+        max-height: 28px;
+        border-radius: 14px;
+    }}
+    QPushButton#clearFileButton:hover {{
+        background: {c['input_bg']};
+        color: {c['text']};
     }}
     QLabel#dropZone[dragOver="true"] {{
         border-color: {accent};
@@ -723,6 +785,7 @@ class UpscaleWorker(QThread):
 
     def _run_realesrgan_frames(self, frames_in, frames_out, model, scale, stall_limit, total_frames):
         stderr_path = os.path.join(os.path.dirname(frames_out), "realesrgan_stderr.log")
+        engine_scale = engine_scale_for(model, scale)
         with open(stderr_path, "w", encoding="utf-8", errors="replace") as stderr_file:
             proc = subprocess.Popen(
                 [
@@ -730,7 +793,7 @@ class UpscaleWorker(QThread):
                     "-i", frames_in,
                     "-o", frames_out,
                     "-n", model,
-                    "-s", str(scale),
+                    "-s", str(engine_scale),
                     "-t", "0",
                     "-f", "png",
                 ],
@@ -778,13 +841,26 @@ class UpscaleWorker(QThread):
     def _run_image_pipeline(self):
         info = probe_image(self.input_path)
         model = BENCHMARKS[self.quality_key]["model"]
-        estimated_total = max(estimate_seconds(info, self.quality_key), 1.0)
+        engine_scale = engine_scale_for(model, self.scale)
+        post_downscale = needs_post_downscale(model, self.scale)
+        # ETA: motor gercekten native olcekte calisiyorsa onu baz al
+        estimated_total = max(
+            estimate_seconds_per_frame(info, self.quality_key, engine_scale),
+            1.0,
+        )
 
         base, ext = os.path.splitext(self.input_path)
         out_ext = image_output_format(ext)
         output_path = f"{base}_PixLift_{self.scale}x.{out_ext}"
+        work_path = output_path
+        if post_downscale:
+            work_path = os.path.join(
+                tempfile.gettempdir(),
+                f"pixlift_img_{os.getpid()}_x{engine_scale}.png",
+            )
 
-        self.status.emit(f"Görsel büyütülüyor ({model}, {self.scale}x)...")
+        scale_note = f"{engine_scale}x→{self.scale}x" if post_downscale else f"{self.scale}x"
+        self.status.emit(f"Görsel büyütülüyor ({model}, {scale_note})...")
         self.progress.emit(5)
 
         start = time.time()
@@ -794,11 +870,11 @@ class UpscaleWorker(QThread):
                 [
                     REALESRGAN_EXE,
                     "-i", self.input_path,
-                    "-o", output_path,
+                    "-o", work_path,
                     "-n", model,
-                    "-s", str(self.scale),
+                    "-s", str(engine_scale),
                     "-t", "0",
-                    "-f", out_ext,
+                    "-f", "png" if post_downscale else out_ext,
                 ],
                 cwd=os.path.dirname(REALESRGAN_EXE),
                 stdin=subprocess.DEVNULL,
@@ -830,6 +906,25 @@ class UpscaleWorker(QThread):
             except OSError:
                 pass
             raise PipelineError(f"Büyütme başarısız:\n{stderr_tail}")
+
+        if post_downscale:
+            if self._cancelled:
+                return
+            self.status.emit(f"Hedef boyuta indiriliyor ({self.scale}x)...")
+            tw, th = target_size(info, self.scale)
+            result = run_hidden(
+                [
+                    FFMPEG_EXE, "-y", "-i", work_path,
+                    "-vf", f"scale={tw}:{th}:flags=lanczos",
+                    output_path,
+                ]
+            )
+            try:
+                os.remove(work_path)
+            except OSError:
+                pass
+            if result.returncode != 0:
+                raise PipelineError(f"Boyut ayarı başarısız:\n{result.stderr[-800:]}")
 
         self.progress.emit(100)
         self.finished_ok.emit(output_path)
@@ -896,10 +991,16 @@ class UpscaleWorker(QThread):
             return
 
         model = BENCHMARKS[self.quality_key]["model"]
-        stall_limit = stall_timeout_for_job(info, self.quality_key, self.scale)
+        engine_scale = engine_scale_for(model, self.scale)
+        stall_limit = stall_timeout_for_job(info, self.quality_key, engine_scale)
+        scale_note = (
+            f"{engine_scale}x→{self.scale}x"
+            if needs_post_downscale(model, self.scale)
+            else f"{self.scale}x"
+        )
         self.log(
-            f"Büyütülüyor ({model}, {self.scale}x) - "
-            f"kare ~{format_duration(estimate_seconds_per_frame(info, self.quality_key, self.scale))}, "
+            f"Büyütülüyor ({model}, {scale_note}) - "
+            f"kare ~{format_duration(estimate_seconds_per_frame(info, self.quality_key, engine_scale))}, "
             f"takılma eşiği {int(stall_limit)} sn..."
         )
         if not self._run_realesrgan_frames(
@@ -913,6 +1014,13 @@ class UpscaleWorker(QThread):
         base, _ = os.path.splitext(self.input_path)
         output_path = f"{base}_PixLift_{self.scale}x.mp4"
 
+        vf_parts = []
+        if needs_post_downscale(model, self.scale):
+            tw, th = target_size(info, self.scale)
+            vf_parts.append(f"scale={tw}:{th}:flags=lanczos")
+        if self.output_fps:
+            vf_parts.append(f"fps={self.output_fps}")
+
         cmd = [
             FFMPEG_EXE, "-y",
             "-framerate", str(info["fps"]),
@@ -920,8 +1028,8 @@ class UpscaleWorker(QThread):
         ]
         if info["has_audio"]:
             cmd += ["-i", audio_final]
-        if self.output_fps:
-            cmd += ["-vf", f"fps={self.output_fps}"]
+        if vf_parts:
+            cmd += ["-vf", ",".join(vf_parts)]
         cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p"]
         if info["has_audio"]:
             # fps degisince yeniden encode guvenli; boost sonrasi zaten aac olabilir
@@ -963,9 +1071,15 @@ class UpscaleWorker(QThread):
         self.progress.emit(5)
 
         model = BENCHMARKS[self.quality_key]["model"]
-        stall_limit = stall_timeout_for_job(info, self.quality_key, self.scale)
+        engine_scale = engine_scale_for(model, self.scale)
+        stall_limit = stall_timeout_for_job(info, self.quality_key, engine_scale)
+        scale_note = (
+            f"{engine_scale}x→{self.scale}x"
+            if needs_post_downscale(model, self.scale)
+            else f"{self.scale}x"
+        )
         self.log(
-            f"Büyütülüyor ({model}, {self.scale}x) - "
+            f"Büyütülüyor ({model}, {scale_note}) - "
             f"takılma eşiği {int(stall_limit)} sn..."
         )
         if not self._run_realesrgan_frames(
@@ -981,13 +1095,18 @@ class UpscaleWorker(QThread):
 
         # Duz -pix_fmt yerine palette uretip kullanmak (256 renk sinirlamasinda)
         # buyutulmus kareler icin cok daha az bantlanma/renk bozulmasi verir.
+        pre = []
+        if needs_post_downscale(model, self.scale):
+            tw, th = target_size(info, self.scale)
+            pre.append(f"scale={tw}:{th}:flags=lanczos")
+        if self.output_fps:
+            pre.append(f"fps={self.output_fps}")
+        pre_vf = ",".join(pre) + "," if pre else ""
         cmd = [
             FFMPEG_EXE, "-y",
             "-framerate", str(info["fps"]),
             "-i", os.path.join(frames_out, "frame_%05d.png"),
-            "-vf", (
-                f"fps={self.output_fps}," if self.output_fps else ""
-            ) + "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
+            "-vf", pre_vf + "split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse",
             "-loop", "0",
             output_path,
         ]
@@ -1116,13 +1235,28 @@ class MainWindow(QMainWindow):
         layout.addLayout(title_row)
         layout.addSpacing(6)
 
+        self.drop_frame = QFrame()
+        self.drop_frame.setObjectName("dropZoneFrame")
+        drop_grid = QGridLayout(self.drop_frame)
+        drop_grid.setContentsMargins(0, 0, 0, 0)
+        drop_grid.setSpacing(0)
+
         self.file_label = QLabel()
         self.file_label.setObjectName("dropZone")
         self.file_label.setProperty("hasFile", False)
         self.file_label.setProperty("dragOver", False)
         self.file_label.setWordWrap(True)
         self.file_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.file_label)
+        self.file_label.setMinimumHeight(88)
+        drop_grid.addWidget(self.file_label, 0, 0)
+
+        self.clear_btn = QPushButton("×")
+        self.clear_btn.setObjectName("clearFileButton")
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_btn.setVisible(False)
+        self.clear_btn.clicked.connect(self.clear_file)
+        drop_grid.addWidget(self.clear_btn, 0, 0, Qt.AlignTop | Qt.AlignRight)
+        layout.addWidget(self.drop_frame)
 
         self.browse_btn = QPushButton()
         self.browse_btn.clicked.connect(self.browse_file)
@@ -1141,12 +1275,16 @@ class MainWindow(QMainWindow):
         scale_layout = QHBoxLayout(scale_card)
         self.scale_2x = QRadioButton("2x")
         self.scale_3x = QRadioButton("3x")
+        self.scale_4x = QRadioButton("4x")
         self.scale_2x.setChecked(True)
         self.scale_group = QButtonGroup(self)
         self.scale_group.addButton(self.scale_2x)
         self.scale_group.addButton(self.scale_3x)
+        self.scale_group.addButton(self.scale_4x)
         scale_layout.addWidget(self.scale_2x)
         scale_layout.addWidget(self.scale_3x)
+        scale_layout.addWidget(self.scale_4x)
+        self.scale_4x.setVisible(False)
         scale_col, self.scale_title = self._column("", scale_card, return_title=True)
         sections_row.addLayout(scale_col)
 
@@ -1196,7 +1334,7 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(sections_row)
 
-        for btn in (self.scale_2x, self.scale_3x, self.model_hd, self.model_4k):
+        for btn in (self.scale_2x, self.scale_3x, self.scale_4x, self.model_hd, self.model_4k):
             btn.toggled.connect(self.update_hint)
 
         self.hint_label = QLabel("")
@@ -1252,6 +1390,7 @@ class MainWindow(QMainWindow):
         if not has_file:
             self.file_label.setText(self.t("drop_empty"))
         self.browse_btn.setText(self.t("browse"))
+        self.clear_btn.setToolTip(self.t("clear_file"))
         self.scale_title.setText(self.t("section_scale"))
         self.model_title.setText(self.t("section_model"))
         self.audio_title.setText(self.t("section_audio"))
@@ -1282,6 +1421,7 @@ class MainWindow(QMainWindow):
         self.update_theme_button()
         if self.video_info:
             self._refresh_info_label()
+            self._update_scale_options()
             self.update_hint()
         if self.play_btn.isVisible():
             self._refresh_play_btn_text()
@@ -1383,6 +1523,7 @@ class MainWindow(QMainWindow):
         self.input_path = path
         self.file_label.setText(os.path.basename(path))
         self._set_drop_zone_property("hasFile", True)
+        self.clear_btn.setVisible(True)
         self._refresh_info_label()
 
         show_av = not self.is_image and not self.is_gif
@@ -1390,9 +1531,61 @@ class MainWindow(QMainWindow):
         self.audio_card.setVisible(show_av)
         self.fps_title.setVisible(not self.is_image)
         self.fps_card.setVisible(not self.is_image)
+        self._update_scale_options()
 
         self.run_btn.setEnabled(True)
+        self._set_controls_busy(False)
         self.update_hint()
+
+    def clear_file(self):
+        """Secili dosyayi kaldir; bos baslangic durumuna don."""
+        if self.worker and self.worker.isRunning():
+            return
+        self.input_path = None
+        self.output_path = None
+        self.video_info = None
+        self.is_image = False
+        self.is_gif = False
+        self.file_label.setText(self.t("drop_empty"))
+        self._set_drop_zone_property("hasFile", False)
+        self.clear_btn.setVisible(False)
+        self.info_label.setText("")
+        self.hint_label.setText("")
+        self.eta_label.setText("")
+        self.progress_bar.setValue(0)
+        self.run_btn.setEnabled(False)
+        self.open_folder_btn.setVisible(False)
+        self.play_btn.setVisible(False)
+        self.audio_title.setVisible(True)
+        self.audio_card.setVisible(True)
+        self.fps_title.setVisible(True)
+        self.fps_card.setVisible(True)
+        self.scale_2x.setVisible(True)
+        self.scale_3x.setVisible(True)
+        self.scale_4x.setVisible(False)
+        if not self.scale_2x.isChecked() and not self.scale_3x.isChecked():
+            self.scale_2x.setChecked(True)
+        self._set_controls_busy(False)
+
+    def _update_scale_options(self):
+        """Foto: sabit 4x. Video/GIF: 2x / 3x."""
+        photo = self.is_image
+        self.scale_2x.setVisible(not photo)
+        self.scale_3x.setVisible(not photo)
+        self.scale_4x.setVisible(photo)
+        if photo:
+            self.scale_4x.setChecked(True)
+            tip = self.t("scale_photo_tip")
+            self.scale_4x.setToolTip(tip)
+            self.scale_2x.setToolTip("")
+            self.scale_3x.setToolTip("")
+        else:
+            if self.scale_4x.isChecked():
+                self.scale_2x.setChecked(True)
+            tip = self.t("scale_video_tip")
+            self.scale_2x.setToolTip(tip)
+            self.scale_3x.setToolTip(tip)
+            self.scale_4x.setToolTip("")
 
     # --- Tahmin / uyari metni ---
 
@@ -1400,13 +1593,23 @@ class MainWindow(QMainWindow):
         if not self.video_info:
             return
         quality_key = "quality" if self.model_4k.isChecked() else "fast"
-        scale = 3 if self.scale_3x.isChecked() else 2
+        scale = self._selected_scale()
         seconds = estimate_seconds(self.video_info, quality_key)
         text = f"{self.t('eta_prefix')} {format_duration(seconds)}"
 
-        if quality_key == "fast" and scale == 3 and low_bitrate_risk(self.video_info):
+        if (
+            not self.is_image
+            and quality_key == "fast"
+            and scale == 3
+            and low_bitrate_risk(self.video_info)
+        ):
             text += self.t("warn_bitrate")
         self.hint_label.setText(text)
+
+    def _selected_scale(self):
+        if self.is_image:
+            return 4
+        return 3 if self.scale_3x.isChecked() else 2
 
     def _selected_audio_mode(self):
         if self.audio_off.isChecked():
@@ -1431,6 +1634,7 @@ class MainWindow(QMainWindow):
             self.browse_btn,
             self.scale_2x,
             self.scale_3x,
+            self.scale_4x,
             self.model_hd,
             self.model_4k,
             self.audio_off,
@@ -1446,26 +1650,48 @@ class MainWindow(QMainWindow):
         )
 
     def _set_controls_busy(self, busy):
-        """Uretim sirasinda tercihleri ve dosya secimini kilitle."""
-        enabled = not busy
-        for w in self._preference_widgets():
-            w.setEnabled(enabled)
-        self.setAcceptDrops(enabled)
-        # Ses/FPS kartlari gizliyse de widget state tutarli kalsin
-        if not busy and self.input_path:
-            show_av = not self.is_image and not self.is_gif
-            self.audio_card.setEnabled(show_av)
-            for btn in (self.audio_off, self.audio_auto, self.audio_25, self.audio_50, self.audio_100):
-                btn.setEnabled(show_av)
-            show_fps = not self.is_image
-            self.fps_card.setEnabled(show_fps)
-            for btn in (self.fps_original, self.fps_30, self.fps_60):
-                btn.setEnabled(show_fps)
+        """Uretim sirasinda tercihleri kilitle; bitince dosya tipine gore ac."""
+        self.setAcceptDrops(not busy)
+        self.clear_btn.setEnabled(not busy and bool(self.input_path))
+
+        if busy:
+            for w in self._preference_widgets():
+                w.setEnabled(False)
+            self.audio_card.setEnabled(False)
+            self.fps_card.setEnabled(False)
+            return
+
+        # --- Kilit ac ---
+        has_file = bool(self.input_path)
+        photo = has_file and self.is_image
+        gif = has_file and self.is_gif
+        show_av = has_file and not photo and not gif
+        show_fps = has_file and not photo
+
+        self.browse_btn.setEnabled(True)
+        self.lang_btn.setEnabled(True)
+        self.theme_btn.setEnabled(True)
+
+        self.model_hd.setEnabled(has_file)
+        self.model_4k.setEnabled(has_file)
+
+        self._update_scale_options()
+        self.scale_2x.setEnabled(has_file and not photo)
+        self.scale_3x.setEnabled(has_file and not photo)
+        self.scale_4x.setEnabled(photo)
+
+        self.audio_card.setEnabled(show_av)
+        for btn in (self.audio_off, self.audio_auto, self.audio_25, self.audio_50, self.audio_100):
+            btn.setEnabled(show_av)
+
+        self.fps_card.setEnabled(show_fps)
+        for btn in (self.fps_original, self.fps_30, self.fps_60):
+            btn.setEnabled(show_fps)
 
     # --- Isleme ---
 
     def start_processing(self):
-        scale = 3 if self.scale_3x.isChecked() else 2
+        scale = self._selected_scale()
         quality_key = "quality" if self.model_4k.isChecked() else "fast"
         audio_mode = self._selected_audio_mode() if not self.is_image and not self.is_gif else "off"
         output_fps = None if self.is_image else self._selected_output_fps()
