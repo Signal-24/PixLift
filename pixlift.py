@@ -147,7 +147,7 @@ NO_CREATE_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 # GPU/surucu bazi kare-kombinasyonlarinda ncnn-vulkan'i tik sikici bir sekilde
 # donduruyor (gozlemlendi: 1920x1080 + 4x + tile=128). Kareler arasi bekleme
-# suresi sabit degil: Kaliteli model + HD'de tek kare 90sn'yi asabiliyor.
+# suresi sabit degil: Kaliteli model + yuksek cozunurlukte tek kare 90sn'yi asabiliyor.
 STALL_TIMEOUT_SECONDS = 90
 STALL_TIMEOUT_MIN_SECONDS = 120
 STALL_PER_FRAME_MULT = 4.0
@@ -166,10 +166,10 @@ STRINGS = {
         "section_model": "MODEL",
         "section_audio": "SES",
         "section_fps": "FPS",
-        "model_hd": "HD",
-        "model_4k": "4K",
-        "model_hd_tip": "Hızlı model (animevideov3) — dakikalar sürer",
-        "model_4k_tip": "Yüksek detay (x4plus) — daha yavaş, daha keskin",
+        "model_hd": "Hızlı",
+        "model_4k": "Kaliteli",
+        "model_hd_tip": "Hızlı model (animevideov3) — dakikalar sürer; çıktı boyutu BÜYÜTME ile belirlenir",
+        "model_4k_tip": "Yüksek detay (x4plus) — daha yavaş, daha keskin; çıktı boyutu BÜYÜTME ile belirlenir",
         "audio_off": "Kapalı",
         "audio_auto": "Otomatik",
         "audio_25": "+%25",
@@ -200,7 +200,7 @@ STRINGS = {
         "lang_tip": "Switch to English",
         "warn_bitrate": (
             "<br><span style='color:#f59e0b;'>Uyarı: Bu kaynağın bit oranı düşük "
-            "görünüyor - HD model + 4x'te koyu bölgelerde blok/mozaik "
+            "görünüyor - Hızlı model + 4x'te koyu bölgelerde blok/mozaik "
             "artefaktı görülebilir.</span>"
         ),
         "photo": "Fotoğraf",
@@ -217,10 +217,10 @@ STRINGS = {
         "section_model": "MODEL",
         "section_audio": "AUDIO",
         "section_fps": "FPS",
-        "model_hd": "HD",
-        "model_4k": "4K",
-        "model_hd_tip": "Fast model (animevideov3) — minutes",
-        "model_4k_tip": "High detail (x4plus) — slower, sharper",
+        "model_hd": "Fast",
+        "model_4k": "Quality",
+        "model_hd_tip": "Fast model (animevideov3) — minutes; output size is set by SCALE",
+        "model_4k_tip": "High detail (x4plus) — slower, sharper; output size is set by SCALE",
         "audio_off": "Off",
         "audio_auto": "Auto",
         "audio_25": "+25%",
@@ -251,7 +251,7 @@ STRINGS = {
         "lang_tip": "Türkçe'ye geç",
         "warn_bitrate": (
             "<br><span style='color:#f59e0b;'>Warning: This source looks low-bitrate — "
-            "HD model + 4x may show block artifacts in dark areas.</span>"
+            "Fast model + 4x may show block artifacts in dark areas.</span>"
         ),
         "photo": "Photo",
         "missing_title": "PixLift - Missing tools",
@@ -713,7 +713,7 @@ class UpscaleWorker(QThread):
                 raise PipelineError(
                     f"Büyütme {done}. karede takıldı "
                     f"(~{int(stall_limit)} sn ilerleme yok; GPU/sürücü veya VRAM olabilir) - "
-                    "tekrar deneyin; tekrarlanırsa 2x veya HD model deneyin."
+                    "tekrar deneyin; tekrarlanırsa 2x veya Hızlı model deneyin."
                     f"{detail}"
                 )
             pct = 5 + int(90 * done / max(total_frames, 1))

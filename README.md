@@ -8,7 +8,7 @@ PySide6 UI — Turkish / English, dark / light theme.
 ## Features
 
 - Scale **2x / 4x**
-- Models: **HD** (fast) / **4K** (higher detail, slower)
+- Models: **Fast** (animevideov3) / **Quality** (x4plus, slower) — scale (2x/4x) sets output size, not the model name
 - Audio boost: Off / Auto / +25% / +50% / +100%
 - Output FPS: Original / 30 / 60
 - Completion sound
@@ -37,6 +37,14 @@ Long / high-resolution videos benefit from **32 GB** RAM. Upscaling is GPU-bound
 ```bash
 git clone https://github.com/Mendocan/PixLift.git
 cd PixLift
+```
+
+**Windows (easiest):** double-click `setup.bat` once, then double-click `PixLift.bat` anytime.  
+Optional: copy `scripts/run-local.example.ps1` → `run-local.ps1` and set tool paths.
+
+**Manual (all platforms):**
+
+```bash
 python -m venv .venv
 
 # Windows
@@ -52,7 +60,6 @@ Place tools under `tools/` (see [tools/README.md](tools/README.md)) **or** set `
 ```bash
 python pixlift.py
 ```
-
 ## Build Windows .exe (optional)
 
 ```bash
