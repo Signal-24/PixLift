@@ -1,0 +1,38 @@
+# Bytecode / virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# Local tool binaries (download separately — see tools/README.md)
+tools/realesrgan/**
+tools/ffmpeg/**
+!tools/README.md
+!tools/**/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.lnk
+
+# Local overrides (optional)
+.env
+.env.*
+!.env.example
+pixlift.local.json
+run-local.ps1
+scripts/run-local.ps1
+
+# Temp / logs
+*.log
+*.tmp
