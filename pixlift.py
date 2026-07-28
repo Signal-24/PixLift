@@ -200,7 +200,7 @@ STRINGS = {
         "lang_tip": "Switch to English",
         "warn_bitrate": (
             "<br><span style='color:#f59e0b;'>Uyarı: Bu kaynağın bit oranı düşük "
-            "görünüyor - Hızlı model + 4x'te koyu bölgelerde blok/mozaik "
+            "görünüyor - Hızlı model + 3x'te koyu bölgelerde blok/mozaik "
             "artefaktı görülebilir.</span>"
         ),
         "photo": "Fotoğraf",
@@ -251,7 +251,7 @@ STRINGS = {
         "lang_tip": "Türkçe'ye geç",
         "warn_bitrate": (
             "<br><span style='color:#f59e0b;'>Warning: This source looks low-bitrate — "
-            "Fast model + 4x may show block artifacts in dark areas.</span>"
+            "Fast model + 3x may show block artifacts in dark areas.</span>"
         ),
         "photo": "Photo",
         "missing_title": "PixLift - Missing tools",
@@ -599,8 +599,8 @@ def estimate_seconds(info, quality_key):
     return per_frame * info["frame_count"]
 
 
-def estimate_seconds_per_frame(info, quality_key, scale=4):
-    """Tek kare icin tahmini sure (olcek 4x referans; 2x ~ yari agirlik)."""
+def estimate_seconds_per_frame(info, quality_key, scale=3):
+    """Tek kare icin tahmini sure (olcek 4x referans; 2x daha hafif, 3x orta)."""
     bench = BENCHMARKS[quality_key]
     px = info["width"] * info["height"]
     per_frame = bench["seconds_per_frame"] * (px / bench["ref_px"])
@@ -609,7 +609,7 @@ def estimate_seconds_per_frame(info, quality_key, scale=4):
     return max(per_frame * scale_factor, 1.0)
 
 
-def stall_timeout_for_job(info, quality_key, scale=4):
+def stall_timeout_for_job(info, quality_key, scale=3):
     """Iki kare arasinda en fazla bu kadar beklenir; asilirsa asili sayilir."""
     per_frame = estimate_seconds_per_frame(info, quality_key, scale)
     return max(
@@ -1140,13 +1140,13 @@ class MainWindow(QMainWindow):
         scale_card.setObjectName("card")
         scale_layout = QHBoxLayout(scale_card)
         self.scale_2x = QRadioButton("2x")
-        self.scale_4x = QRadioButton("4x")
+        self.scale_3x = QRadioButton("3x")
         self.scale_2x.setChecked(True)
         self.scale_group = QButtonGroup(self)
         self.scale_group.addButton(self.scale_2x)
-        self.scale_group.addButton(self.scale_4x)
+        self.scale_group.addButton(self.scale_3x)
         scale_layout.addWidget(self.scale_2x)
-        scale_layout.addWidget(self.scale_4x)
+        scale_layout.addWidget(self.scale_3x)
         scale_col, self.scale_title = self._column("", scale_card, return_title=True)
         sections_row.addLayout(scale_col)
 
@@ -1196,7 +1196,7 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(sections_row)
 
-        for btn in (self.scale_2x, self.scale_4x, self.model_hd, self.model_4k):
+        for btn in (self.scale_2x, self.scale_3x, self.model_hd, self.model_4k):
             btn.toggled.connect(self.update_hint)
 
         self.hint_label = QLabel("")
@@ -1400,11 +1400,11 @@ class MainWindow(QMainWindow):
         if not self.video_info:
             return
         quality_key = "quality" if self.model_4k.isChecked() else "fast"
-        scale = 4 if self.scale_4x.isChecked() else 2
+        scale = 3 if self.scale_3x.isChecked() else 2
         seconds = estimate_seconds(self.video_info, quality_key)
         text = f"{self.t('eta_prefix')} {format_duration(seconds)}"
 
-        if quality_key == "fast" and scale == 4 and low_bitrate_risk(self.video_info):
+        if quality_key == "fast" and scale == 3 and low_bitrate_risk(self.video_info):
             text += self.t("warn_bitrate")
         self.hint_label.setText(text)
 
@@ -1430,7 +1430,7 @@ class MainWindow(QMainWindow):
         return (
             self.browse_btn,
             self.scale_2x,
-            self.scale_4x,
+            self.scale_3x,
             self.model_hd,
             self.model_4k,
             self.audio_off,
@@ -1465,7 +1465,7 @@ class MainWindow(QMainWindow):
     # --- Isleme ---
 
     def start_processing(self):
-        scale = 4 if self.scale_4x.isChecked() else 2
+        scale = 3 if self.scale_3x.isChecked() else 2
         quality_key = "quality" if self.model_4k.isChecked() else "fast"
         audio_mode = self._selected_audio_mode() if not self.is_image and not self.is_gif else "off"
         output_fps = None if self.is_image else self._selected_output_fps()

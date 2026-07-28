@@ -20,12 +20,11 @@ $local = Join-Path $PSScriptRoot "run-local.ps1"
 $example = Join-Path $PSScriptRoot "scripts\run-local.example.ps1"
 if (-not (Test-Path $local)) {
     Copy-Item $example $local
-    Write-Host "Created run-local.ps1 from example — edit Real-ESRGAN / ffmpeg paths if needed."
+    Write-Host "Created run-local.ps1 from example - edit Real-ESRGAN / ffmpeg paths if needed."
 }
 
 Write-Host ""
-Write-Host "Setup done. Double-click PixLift.bat to start, or run:"
-Write-Host "  .\PixLift.bat"
+Write-Host "Setup done. Starting PixLift..."
 Write-Host ""
 Write-Host "Tools: put Real-ESRGAN + ffmpeg under tools\ (see tools\README.md)"
 Write-Host "       or set paths in run-local.ps1 / PIXLIFT_* env vars."

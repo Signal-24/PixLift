@@ -7,10 +7,10 @@ PySide6 UI — Turkish / English, dark / light theme.
 
 ## Features
 
-- Scale **2x / 4x**
-- Models: **Fast** (animevideov3) / **Quality** (x4plus, slower) — scale (2x/4x) sets output size, not the model name
+- Scale **2x / 3x**
+- Models: **Fast** (animevideov3) / **Quality** (x4plus, slower) — scale (2x/3x) sets output size, not the model name
 - Audio boost: Off / Auto / +25% / +50% / +100%
-- Output FPS: Original / 30 / 60
+- Output FPS: Original / 30fps / 60fps
 - Completion sound
 - Language: TR / EN
 - Locks preferences while a job is running
@@ -39,7 +39,7 @@ git clone https://github.com/Mendocan/PixLift.git
 cd PixLift
 ```
 
-**Windows (easiest):** double-click `setup.bat` once, then double-click `PixLift.bat` anytime.  
+**Windows (easiest):** double-click `setup.bat` (installs deps and starts the app) or `PixLift.bat` anytime after setup.  
 Optional: copy `scripts/run-local.example.ps1` → `run-local.ps1` and set tool paths.
 
 **Manual (all platforms):**
