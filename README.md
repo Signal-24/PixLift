@@ -22,6 +22,16 @@ PySide6 UI — Turkish / English, dark / light theme.
 - [Real-ESRGAN-ncnn-vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases) + models
 - [ffmpeg](https://ffmpeg.org/download.html) (`ffmpeg` and `ffprobe`)
 
+### System requirements
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| RAM | 8 GB (photos / small GIFs) | **16 GB** for video |
+| GPU | Vulkan-capable (Intel / AMD / NVIDIA) | Dedicated GPU; integrated is much slower |
+| Disk | A few GB free | Extra space ≈ several× the source video (temp frames) |
+
+Long / high-resolution videos benefit from **32 GB** RAM. Upscaling is GPU-bound; weak or integrated GPUs mean long runtimes.
+
 ## Quick start
 
 ```bash
