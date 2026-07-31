@@ -264,7 +264,10 @@ class UpscaleWorker(QThread):
         if total_frames == 0:
             raise PipelineError(self.t("w_no_frames"))
 
-        audio_path = os.path.join(temp_dir, "audio.m4a")
+        # Matroska (.mka) hemen hemen her ses kodekini "copy" ile kabul eder;
+        # m4a/mp4 konteyneri ise yalnizca aac/alac ile calisir ve kaynak mp3/opus/vb.
+        # oldugunda "codec not currently supported in container" ile patlar.
+        audio_path = os.path.join(temp_dir, "audio.mka")
         audio_final = audio_path
         if info["has_audio"]:
             self.status.emit(self.t("w_separating_audio"))
@@ -274,13 +277,18 @@ class UpscaleWorker(QThread):
             )
 
             if self.audio_mode != "off":
-                audio_final = os.path.join(temp_dir, "audio_boosted.m4a")
+                audio_final = os.path.join(temp_dir, "audio_boosted.mka")
+                # flac: kayipsiz ve aac'nin aksine sıra disi kanal duzenlerinde
+                # takilmiyor; nihai aac'ye gecis yalnizca birlestirme adiminda olur.
                 if self.audio_mode == "auto":
                     gain = analyze_audio_gain(audio_path, self.log)
                     if gain > 0.1:
                         self.status.emit(self.t("w_boosting_audio_gain", gain=gain))
                         run_ffmpeg(
-                            [tools.FFMPEG_EXE, "-y", "-i", audio_path, "-af", f"volume={gain:.1f}dB", audio_final],
+                            [
+                                tools.FFMPEG_EXE, "-y", "-i", audio_path,
+                                "-af", f"volume={gain:.1f}dB", "-c:a", "flac", audio_final,
+                            ],
                             self.t("w_boost_audio_failed"),
                         )
                     else:
@@ -289,7 +297,10 @@ class UpscaleWorker(QThread):
                     mult = {"25": 1.25, "50": 1.5, "100": 2.0}.get(self.audio_mode, 1.0)
                     self.status.emit(self.t("w_boosting_audio_mult", mult=mult))
                     run_ffmpeg(
-                        [tools.FFMPEG_EXE, "-y", "-i", audio_path, "-af", f"volume={mult}", audio_final],
+                        [
+                            tools.FFMPEG_EXE, "-y", "-i", audio_path,
+                            "-af", f"volume={mult}", "-c:a", "flac", audio_final,
+                        ],
                         self.t("w_boost_audio_failed"),
                     )
 
