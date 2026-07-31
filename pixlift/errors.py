@@ -7,17 +7,15 @@ class PipelineError(Exception):
     """Kullaniciya gosterilecek kisa ozet + (varsa) ffmpeg log kuyrugu."""
 
 
-def run_ffmpeg(args, summary, log=None):
-    """ffmpeg calistir; basarisizsa PipelineError(ozet + log kuyrugu) firlat.
+def format_error(summary, stderr):
+    """Kisa ozet + son ~800 karakterlik stderr kuyrugunu tek mesajda birlestir."""
+    tail = (stderr or "")[-800:].strip()
+    return f"{summary}:\n{tail}" if tail else summary
 
-    Tam stderr `log` varsa oraya yazilir (debug icin); kullaniciya sadece
-    son ~800 karakterlik kuyruk gosterilir.
-    """
+
+def run_ffmpeg(args, summary):
+    """ffmpeg calistir; basarisizsa PipelineError(ozet + stderr kuyrugu) firlat."""
     result = run_hidden(args)
     if result.returncode != 0:
-        if log:
-            log(f"[ffmpeg] {' '.join(args)}\n{result.stderr}")
-        tail = result.stderr[-800:].strip()
-        detail = f":\n{tail}" if tail else ""
-        raise PipelineError(f"{summary}{detail}")
+        raise PipelineError(format_error(summary, result.stderr))
     return result

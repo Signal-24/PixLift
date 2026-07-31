@@ -1,34 +1,52 @@
 """Qt stylesheet uretimi (koyu/acik tema)."""
 
+from PySide6.QtGui import QColor
+
 from .settings import ACCENT
+
+PALETTES = {
+    "dark": {
+        "bg": "#1e1f22",
+        "card": "#2a2c30",
+        "border": "rgba(34, 211, 238, 0.35)",
+        "disabled_bg": "#3a3d42",
+        "text": "#e8e8e8",
+        "muted": "#9aa0a6",
+        "accent_hover": "#5eead4",
+        "accent_pressed": "#0e8a9c",
+        "input_bg": "#26282c",
+        "chip_text": "#06202b",
+    },
+    "light": {
+        "bg": "#f3f5f7",
+        "card": "#ffffff",
+        "border": "rgba(8, 145, 178, 0.35)",
+        "disabled_bg": "#dde1e6",
+        "text": "#1f2124",
+        "muted": "#5f6368",
+        "accent_hover": "#22d3ee",
+        "accent_pressed": "#067a8c",
+        "input_bg": "#ffffff",
+        "chip_text": "#06202b",
+    },
+}
+
+
+def icon_color(theme):
+    return QColor(PALETTES[theme]["text"])
+
+
+def muted_icon_color(theme):
+    return QColor(PALETTES[theme]["muted"])
+
+
+def accent_color(theme):
+    return QColor(ACCENT[theme])
 
 
 def build_stylesheet(theme):
     accent = ACCENT[theme]
-    if theme == "dark":
-        c = {
-            "bg": "#1e1f22",
-            "card": "#2a2c30",
-            "border": "rgba(34, 211, 238, 0.35)",
-            "disabled_bg": "#3a3d42",
-            "text": "#e8e8e8",
-            "muted": "#9aa0a6",
-            "accent_hover": "#5eead4",
-            "accent_pressed": "#0e8a9c",
-            "input_bg": "#26282c",
-        }
-    else:
-        c = {
-            "bg": "#f3f5f7",
-            "card": "#ffffff",
-            "border": "rgba(8, 145, 178, 0.35)",
-            "disabled_bg": "#dde1e6",
-            "text": "#1f2124",
-            "muted": "#5f6368",
-            "accent_hover": "#22d3ee",
-            "accent_pressed": "#067a8c",
-            "input_bg": "#ffffff",
-        }
+    c = PALETTES[theme]
 
     return f"""
     QMainWindow, QWidget {{
@@ -49,14 +67,15 @@ def build_stylesheet(theme):
     }}
     QLabel#dropZone {{
         border: 2px dashed {c['border']};
-        border-radius: 10px;
-        padding: 28px;
+        border-radius: 12px;
+        padding: 26px;
         background: {c['card']};
         color: {c['muted']};
         font-size: 13px;
     }}
     QLabel#dropZone[hasFile="true"] {{
-        border-color: {accent};
+        border: 1px solid {accent};
+        background: {c['input_bg']};
         color: {c['text']};
         font-weight: 600;
     }}
@@ -93,51 +112,41 @@ def build_stylesheet(theme):
     QFrame#card {{
         background: {c['card']};
         border: 1px solid {c['border']};
-        border-radius: 10px;
+        border-radius: 12px;
         padding: 8px;
     }}
     QLabel#sectionTitle {{
         color: {c['muted']};
-        font-weight: 600;
+        font-weight: 700;
         font-size: 11px;
         padding-left: 2px;
     }}
-    QRadioButton, QCheckBox {{
-        padding: 4px;
-        spacing: 8px;
-    }}
-    QRadioButton::indicator {{
-        width: 15px;
-        height: 15px;
+    QRadioButton#choiceChip {{
+        padding: 6px 12px;
+        spacing: 0px;
         border-radius: 8px;
-        border: 2px solid {c['border']};
+        border: 1px solid transparent;
         background: {c['input_bg']};
-    }}
-    QRadioButton::indicator:checked {{
-        border: 2px solid {accent};
-        background: qradialgradient(
-            cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
-            stop:0 {accent}, stop:0.5 {accent}, stop:0.6 {c['card']}, stop:1 {c['card']}
-        );
-    }}
-    QRadioButton:checked {{
-        color: {accent};
+        color: {c['muted']};
         font-weight: 600;
     }}
-    QCheckBox::indicator {{
-        width: 15px;
-        height: 15px;
-        border-radius: 4px;
-        border: 2px solid {c['border']};
-        background: {c['input_bg']};
+    QRadioButton#choiceChip::indicator {{
+        width: 0px;
+        height: 0px;
     }}
-    QCheckBox::indicator:checked {{
-        border: 2px solid {accent};
+    QRadioButton#choiceChip:hover {{
+        border-color: {c['border']};
+        color: {c['text']};
+    }}
+    QRadioButton#choiceChip:checked {{
         background: {accent};
+        color: {c['chip_text']};
+        border-color: {accent};
     }}
-    QCheckBox:checked {{
-        color: {accent};
-        font-weight: 600;
+    QRadioButton#choiceChip:disabled {{
+        color: {c['muted']};
+        background: {c['disabled_bg']};
+        border-color: transparent;
     }}
     QPushButton {{
         background: {c['card']};
@@ -226,5 +235,15 @@ def build_stylesheet(theme):
         font-size: 13px;
         font-weight: 600;
         padding-top: 6px;
+    }}
+    QListWidget#queueList {{
+        background: {c['card']};
+        border: 1px solid {c['border']};
+        border-radius: 10px;
+        padding: 4px;
+    }}
+    QListWidget#queueList::item {{
+        padding: 3px 4px;
+        color: {c['text']};
     }}
     """

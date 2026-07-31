@@ -1,2 +1,5 @@
 # Optional: PyInstaller for Windows .exe builds
 pyinstaller>=6.0
+
+# Test suite
+pytest>=7.0

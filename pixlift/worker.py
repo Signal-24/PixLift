@@ -9,7 +9,7 @@ import time
 from PySide6.QtCore import QThread, Signal
 
 from . import tools
-from .errors import PipelineError, run_ffmpeg
+from .errors import PipelineError, format_error, run_ffmpeg
 from .media import (
     BENCHMARKS,
     STALL_TIMEOUT_MIN_SECONDS,
@@ -27,6 +27,7 @@ from .media import (
     stall_timeout_for_job,
     target_size,
 )
+from .settings import STRINGS
 from .tools import run_hidden
 
 
@@ -38,7 +39,7 @@ class UpscaleWorker(QThread):
     cancelled = Signal()
     warning = Signal(str)
 
-    def __init__(self, input_path, scale, quality_key, audio_mode="auto", output_fps=None):
+    def __init__(self, input_path, scale, quality_key, audio_mode="auto", output_fps=None, strings=None):
         super().__init__()
         self.input_path = input_path
         self.scale = scale
@@ -46,13 +47,21 @@ class UpscaleWorker(QThread):
         # audio_mode: "off" | "auto" | "25" | "50" | "100"
         self.audio_mode = audio_mode
         self.output_fps = output_fps  # None = orijinal
+        self.strings = strings or STRINGS["tr"]
         self._cancelled = False
 
     def cancel(self):
         self._cancelled = True
 
+    def t(self, key, **kwargs):
+        template = self.strings.get(key, key)
+        return template.format(**kwargs) if kwargs else template
+
     def log(self, message):
         self.status.emit(message)
+
+    def _duration_units(self):
+        return {"sec": self.t("unit_sec"), "min": self.t("unit_min"), "hr": self.t("unit_hr")}
 
     def _wait_realesrgan(self, proc, frames_out, total_frames, stall_limit, stderr_path):
         """Real-ESRGAN bitene kadar izle; kare ilerlemesi yoksa stall_limit sonra kes.
@@ -79,10 +88,7 @@ class UpscaleWorker(QThread):
                     pass
                 detail = f"\n{stderr_tail}" if stderr_tail.strip() else ""
                 raise PipelineError(
-                    f"Büyütme {done}. karede takıldı "
-                    f"(~{int(stall_limit)} sn ilerleme yok; GPU/sürücü veya VRAM olabilir) - "
-                    "tekrar deneyin; tekrarlanırsa 2x veya Hızlı model deneyin."
-                    f"{detail}"
+                    self.t("w_stall_video", done=done, stall=int(stall_limit)) + detail
                 )
             pct = 5 + int(90 * done / max(total_frames, 1))
             self.progress.emit(min(pct, 95))
@@ -121,7 +127,7 @@ class UpscaleWorker(QThread):
                     stderr_tail = f.read()[-800:]
             except OSError:
                 pass
-            raise PipelineError(f"Büyütme başarısız:\n{stderr_tail}")
+            raise PipelineError(format_error(self.t("w_upscale_failed"), stderr_tail))
         return True
 
     def run(self):
@@ -140,7 +146,7 @@ class UpscaleWorker(QThread):
                 self.failed.emit(str(e))
         except Exception as e:  # noqa: BLE001 - kisisel arac, genel hata mesaji yeterli
             if not self._cancelled:
-                self.failed.emit(f"Beklenmeyen hata: {e}")
+                self.failed.emit(self.t("w_unexpected_error", error=e))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -166,7 +172,7 @@ class UpscaleWorker(QThread):
             )
 
         scale_note = f"{engine_scale}x→{self.scale}x" if post_downscale else f"{self.scale}x"
-        self.status.emit(f"Görsel büyütülüyor ({model}, {scale_note})...")
+        self.status.emit(self.t("w_upscaling_photo", model=model, scale_note=scale_note))
         self.progress.emit(5)
 
         start = time.time()
@@ -196,10 +202,7 @@ class UpscaleWorker(QThread):
                 elapsed = time.time() - start
                 if elapsed > stall_limit:
                     proc.kill()
-                    raise PipelineError(
-                        "Büyütme takıldı (GPU sürücü sorunu olabilir) - "
-                        "tekrar deneyin veya daha küçük bir görsel kullanın."
-                    )
+                    raise PipelineError(self.t("w_stall_photo"))
                 pct = 5 + int(90 * min(elapsed / estimated_total, 1.0))
                 self.progress.emit(min(pct, 95))
                 time.sleep(0.2)
@@ -211,12 +214,12 @@ class UpscaleWorker(QThread):
                     stderr_tail = f.read()[-800:]
             except OSError:
                 pass
-            raise PipelineError(f"Büyütme başarısız:\n{stderr_tail}")
+            raise PipelineError(format_error(self.t("w_upscale_failed"), stderr_tail))
 
         if post_downscale:
             if self._cancelled:
                 return
-            self.status.emit(f"Hedef boyuta indiriliyor ({self.scale}x)...")
+            self.status.emit(self.t("w_downscaling_photo", scale=self.scale))
             tw, th = target_size(info, self.scale)
             # Basarisiz olsa bile work_path her zaman temizlenmeli; bu yuzden
             # run_ffmpeg yerine burada dogrudan run_hidden kullaniliyor.
@@ -232,7 +235,7 @@ class UpscaleWorker(QThread):
             except OSError:
                 pass
             if result.returncode != 0:
-                raise PipelineError(f"Boyut ayarı başarısız:\n{result.stderr[-800:]}")
+                raise PipelineError(format_error(self.t("w_resize_failed"), result.stderr))
 
         self.progress.emit(100)
         self.finished_ok.emit(output_path)
@@ -244,7 +247,7 @@ class UpscaleWorker(QThread):
         os.makedirs(frames_in, exist_ok=True)
         os.makedirs(frames_out, exist_ok=True)
 
-        self.status.emit("Kareler çıkarılıyor...")
+        self.status.emit(self.t("w_extracting_frames"))
         self.progress.emit(1)
         run_ffmpeg(
             [
@@ -252,24 +255,22 @@ class UpscaleWorker(QThread):
                 "-qscale:v", "2",
                 os.path.join(frames_in, "frame_%05d.png"),
             ],
-            "Kare çıkarma başarısız",
-            log=self.log,
+            self.t("w_extract_frames_failed"),
         )
         if self._cancelled:
             return
 
         total_frames = len([f for f in os.listdir(frames_in) if f.endswith(".png")])
         if total_frames == 0:
-            raise PipelineError("Hiç kare çıkarılamadı.")
+            raise PipelineError(self.t("w_no_frames"))
 
         audio_path = os.path.join(temp_dir, "audio.m4a")
         audio_final = audio_path
         if info["has_audio"]:
-            self.status.emit("Ses ayrılıyor...")
+            self.status.emit(self.t("w_separating_audio"))
             run_ffmpeg(
                 [tools.FFMPEG_EXE, "-y", "-i", self.input_path, "-vn", "-acodec", "copy", audio_path],
-                "Ses çıkarma başarısız",
-                log=self.log,
+                self.t("w_extract_audio_failed"),
             )
 
             if self.audio_mode != "off":
@@ -277,21 +278,19 @@ class UpscaleWorker(QThread):
                 if self.audio_mode == "auto":
                     gain = analyze_audio_gain(audio_path, self.log)
                     if gain > 0.1:
-                        self.status.emit(f"Ses {gain:.1f}dB yükseltiliyor...")
+                        self.status.emit(self.t("w_boosting_audio_gain", gain=gain))
                         run_ffmpeg(
                             [tools.FFMPEG_EXE, "-y", "-i", audio_path, "-af", f"volume={gain:.1f}dB", audio_final],
-                            "Ses yükseltme başarısız",
-                            log=self.log,
+                            self.t("w_boost_audio_failed"),
                         )
                     else:
                         audio_final = audio_path
                 else:
                     mult = {"25": 1.25, "50": 1.5, "100": 2.0}.get(self.audio_mode, 1.0)
-                    self.status.emit(f"Ses x{mult:.2f}...")
+                    self.status.emit(self.t("w_boosting_audio_mult", mult=mult))
                     run_ffmpeg(
                         [tools.FFMPEG_EXE, "-y", "-i", audio_path, "-af", f"volume={mult}", audio_final],
-                        "Ses yükseltme başarısız",
-                        log=self.log,
+                        self.t("w_boost_audio_failed"),
                     )
 
         self.progress.emit(5)
@@ -306,10 +305,18 @@ class UpscaleWorker(QThread):
             if needs_post_downscale(model, self.scale)
             else f"{self.scale}x"
         )
+        per_frame = format_duration(
+            estimate_seconds_per_frame(info, self.quality_key, engine_scale),
+            units=self._duration_units(),
+        )
         self.log(
-            f"Büyütülüyor ({model}, {scale_note}) - "
-            f"kare ~{format_duration(estimate_seconds_per_frame(info, self.quality_key, engine_scale))}, "
-            f"takılma eşiği {int(stall_limit)} sn..."
+            self.t(
+                "w_upscaling_video",
+                model=model,
+                scale_note=scale_note,
+                per_frame=per_frame,
+                stall=int(stall_limit),
+            )
         )
         if not self._run_realesrgan_frames(
             frames_in, frames_out, model, self.scale, stall_limit, total_frames
@@ -317,7 +324,7 @@ class UpscaleWorker(QThread):
             return
 
         self.progress.emit(95)
-        self.status.emit("Video yeniden birleştiriliyor...")
+        self.status.emit(self.t("w_merging_video"))
 
         base, _ = os.path.splitext(self.input_path)
         output_path = f"{base}_PixLift_{self.scale}x.mp4"
@@ -357,19 +364,16 @@ class UpscaleWorker(QThread):
                 # Ses birlestirme basarisiz olabilir (orn. FFmpeg'in native aac
                 # encoder'i bazi kanal duzenlerini reddediyor) - tamamlanmis
                 # buyutme isini kaybetmemek icin videoyu sessiz olarak dene.
-                self.log(f"[ffmpeg] {' '.join(build_merge_cmd(True))}\n{result.stderr}")
                 retry = run_hidden(build_merge_cmd(with_audio=False))
                 if retry.returncode != 0:
-                    raise PipelineError(f"Birleştirme başarısız:\n{retry.stderr[-800:]}")
+                    raise PipelineError(format_error(self.t("w_merge_failed"), retry.stderr))
                 audio_dropped = True
             else:
-                raise PipelineError(f"Birleştirme başarısız:\n{result.stderr[-800:]}")
+                raise PipelineError(format_error(self.t("w_merge_failed"), result.stderr))
 
         self.progress.emit(100)
         if audio_dropped:
-            self.warning.emit(
-                "Ses birleştirilemedi; video sessiz olarak kaydedildi."
-            )
+            self.warning.emit(self.t("audio_dropped_warning"))
         self.finished_ok.emit(output_path)
 
     def _run_gif_pipeline(self, temp_dir):
@@ -379,7 +383,7 @@ class UpscaleWorker(QThread):
         os.makedirs(frames_in, exist_ok=True)
         os.makedirs(frames_out, exist_ok=True)
 
-        self.status.emit("Kareler çıkarılıyor...")
+        self.status.emit(self.t("w_extracting_frames"))
         self.progress.emit(1)
         run_ffmpeg(
             [
@@ -387,15 +391,14 @@ class UpscaleWorker(QThread):
                 "-qscale:v", "2",
                 os.path.join(frames_in, "frame_%05d.png"),
             ],
-            "Kare çıkarma başarısız",
-            log=self.log,
+            self.t("w_extract_frames_failed"),
         )
         if self._cancelled:
             return
 
         total_frames = len([f for f in os.listdir(frames_in) if f.endswith(".png")])
         if total_frames == 0:
-            raise PipelineError("Hiç kare çıkarılamadı.")
+            raise PipelineError(self.t("w_no_frames"))
 
         self.progress.emit(5)
 
@@ -407,17 +410,14 @@ class UpscaleWorker(QThread):
             if needs_post_downscale(model, self.scale)
             else f"{self.scale}x"
         )
-        self.log(
-            f"Büyütülüyor ({model}, {scale_note}) - "
-            f"takılma eşiği {int(stall_limit)} sn..."
-        )
+        self.log(self.t("w_upscaling_gif", model=model, scale_note=scale_note, stall=int(stall_limit)))
         if not self._run_realesrgan_frames(
             frames_in, frames_out, model, self.scale, stall_limit, total_frames
         ):
             return
 
         self.progress.emit(95)
-        self.status.emit("GIF yeniden birleştiriliyor...")
+        self.status.emit(self.t("w_merging_gif"))
 
         base, _ = os.path.splitext(self.input_path)
         output_path = f"{base}_PixLift_{self.scale}x.gif"
@@ -440,8 +440,7 @@ class UpscaleWorker(QThread):
                 "-loop", "0",
                 output_path,
             ],
-            "Birleştirme başarısız",
-            log=self.log,
+            self.t("w_merge_failed"),
         )
 
         self.progress.emit(100)

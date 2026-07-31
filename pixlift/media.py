@@ -158,14 +158,15 @@ def stall_timeout_for_job(info, quality_key, scale=3):
     )
 
 
-def format_duration(seconds):
+def format_duration(seconds, units=None):
+    units = units or {"sec": "sn", "min": "dk", "hr": "saat"}
     seconds = int(round(seconds))
     if seconds < 90:
-        return f"~{seconds} sn"
+        return f"~{seconds} {units['sec']}"
     minutes = seconds / 60
     if minutes < 90:
-        return f"~{minutes:.0f} dk"
-    return f"~{minutes / 60:.1f} saat"
+        return f"~{minutes:.0f} {units['min']}"
+    return f"~{minutes / 60:.1f} {units['hr']}"
 
 
 def low_bitrate_risk(info):

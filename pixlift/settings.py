@@ -7,6 +7,16 @@ import tempfile
 ACCENT = {"dark": "#22D3EE", "light": "#0891B2"}
 DEFAULT_THEME = "dark"
 DEFAULT_LANGUAGE = "tr"
+DEFAULT_SCALE = 2
+DEFAULT_MODEL = "fast"
+DEFAULT_AUDIO_MODE = "auto"
+DEFAULT_FPS = 0  # 0 = orijinal ("original") - None kullanilmiyor, cunku
+# save_config'in "None -> degistirme" filtresi gercek bir fps=None guncellemesini
+# sessizce yutar.
+VALID_SCALES = (2, 3)
+VALID_MODELS = ("fast", "quality")
+VALID_AUDIO_MODES = ("off", "auto", "25", "50", "100")
+VALID_FPS = (0, 30, 60)
 CONFIG_PATH = os.path.join(os.environ.get("APPDATA", tempfile.gettempdir()), "PixLift", "config.json")
 
 # UI metinleri — TR / EN
@@ -66,6 +76,47 @@ STRINGS = {
         "read_fail": "okunamadı",
         "kind_image": "Görsel",
         "kind_video": "Video",
+        "unit_sec": "sn",
+        "unit_min": "dk",
+        "unit_hr": "saat",
+        "w_extracting_frames": "Kareler çıkarılıyor...",
+        "w_extract_frames_failed": "Kare çıkarma başarısız",
+        "w_no_frames": "Hiç kare çıkarılamadı.",
+        "w_separating_audio": "Ses ayrılıyor...",
+        "w_extract_audio_failed": "Ses çıkarma başarısız",
+        "w_boosting_audio_gain": "Ses {gain:.1f}dB yükseltiliyor...",
+        "w_boosting_audio_mult": "Ses x{mult:.2f}...",
+        "w_boost_audio_failed": "Ses yükseltme başarısız",
+        "w_upscaling_video": (
+            "Büyütülüyor ({model}, {scale_note}) - "
+            "kare ~{per_frame}, takılma eşiği {stall} sn..."
+        ),
+        "w_upscaling_gif": "Büyütülüyor ({model}, {scale_note}) - takılma eşiği {stall} sn...",
+        "w_stall_video": (
+            "Büyütme {done}. karede takıldı "
+            "(~{stall} sn ilerleme yok; GPU/sürücü veya VRAM olabilir) - "
+            "tekrar deneyin; tekrarlanırsa 2x veya Hızlı model deneyin."
+        ),
+        "w_upscale_failed": "Büyütme başarısız",
+        "w_merging_video": "Video yeniden birleştiriliyor...",
+        "w_merge_failed": "Birleştirme başarısız",
+        "w_upscaling_photo": "Görsel büyütülüyor ({model}, {scale_note})...",
+        "w_stall_photo": (
+            "Büyütme takıldı (GPU sürücü sorunu olabilir) - "
+            "tekrar deneyin veya daha küçük bir görsel kullanın."
+        ),
+        "w_downscaling_photo": "Hedef boyuta indiriliyor ({scale}x)...",
+        "w_resize_failed": "Boyut ayarı başarısız",
+        "w_merging_gif": "GIF yeniden birleştiriliyor...",
+        "w_unexpected_error": "Beklenmeyen hata: {error}",
+        "queue_pending": "Bekliyor",
+        "queue_processing": "İşleniyor",
+        "queue_done": "Tamam",
+        "queue_failed": "Hata",
+        "queue_cancelled": "İptal",
+        "queue_files_selected": "{count} dosya seçildi",
+        "queue_status_label": "İşleniyor: {current}/{total}",
+        "queue_summary": "{done}/{total} tamamlandı, {failed} hata.",
     },
     "en": {
         "drop_empty": "Drop a video, photo or GIF here\nor choose a file below",
@@ -121,12 +172,60 @@ STRINGS = {
         "read_fail": "could not be read",
         "kind_image": "Image",
         "kind_video": "Video",
+        "unit_sec": "sec",
+        "unit_min": "min",
+        "unit_hr": "hr",
+        "w_extracting_frames": "Extracting frames...",
+        "w_extract_frames_failed": "Frame extraction failed",
+        "w_no_frames": "No frames were extracted.",
+        "w_separating_audio": "Extracting audio...",
+        "w_extract_audio_failed": "Audio extraction failed",
+        "w_boosting_audio_gain": "Boosting audio by {gain:.1f}dB...",
+        "w_boosting_audio_mult": "Audio x{mult:.2f}...",
+        "w_boost_audio_failed": "Audio boost failed",
+        "w_upscaling_video": (
+            "Upscaling ({model}, {scale_note}) - "
+            "frame ~{per_frame}, stall threshold {stall}s..."
+        ),
+        "w_upscaling_gif": "Upscaling ({model}, {scale_note}) - stall threshold {stall}s...",
+        "w_stall_video": (
+            "Upscale stalled at frame {done} "
+            "(~{stall}s with no progress; could be a GPU driver or VRAM issue) - "
+            "try again; if it repeats, try 2x or the Fast model."
+        ),
+        "w_upscale_failed": "Upscale failed",
+        "w_merging_video": "Re-merging video...",
+        "w_merge_failed": "Merge failed",
+        "w_upscaling_photo": "Upscaling photo ({model}, {scale_note})...",
+        "w_stall_photo": (
+            "Upscale stalled (could be a GPU driver issue) - "
+            "try again or use a smaller image."
+        ),
+        "w_downscaling_photo": "Downscaling to target size ({scale}x)...",
+        "w_resize_failed": "Resize failed",
+        "w_merging_gif": "Re-merging GIF...",
+        "w_unexpected_error": "Unexpected error: {error}",
+        "queue_pending": "Pending",
+        "queue_processing": "Processing",
+        "queue_done": "Done",
+        "queue_failed": "Failed",
+        "queue_cancelled": "Cancelled",
+        "queue_files_selected": "{count} files selected",
+        "queue_status_label": "Processing: {current}/{total}",
+        "queue_summary": "{done}/{total} completed, {failed} failed.",
     },
 }
 
 
 def load_config():
-    data = {"theme": DEFAULT_THEME, "language": DEFAULT_LANGUAGE}
+    data = {
+        "theme": DEFAULT_THEME,
+        "language": DEFAULT_LANGUAGE,
+        "scale": DEFAULT_SCALE,
+        "model": DEFAULT_MODEL,
+        "audio_mode": DEFAULT_AUDIO_MODE,
+        "fps": DEFAULT_FPS,
+    }
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             saved = json.load(f)
@@ -134,6 +233,14 @@ def load_config():
             data["theme"] = saved["theme"]
         if saved.get("language") in STRINGS:
             data["language"] = saved["language"]
+        if saved.get("scale") in VALID_SCALES:
+            data["scale"] = saved["scale"]
+        if saved.get("model") in VALID_MODELS:
+            data["model"] = saved["model"]
+        if saved.get("audio_mode") in VALID_AUDIO_MODES:
+            data["audio_mode"] = saved["audio_mode"]
+        if saved.get("fps") in VALID_FPS:
+            data["fps"] = saved["fps"]
     except Exception:  # noqa: BLE001
         pass
     return data
