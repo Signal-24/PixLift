@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 
-ACCENT = {"dark": "#22D3EE", "light": "#0891B2"}
+ACCENT = {"dark": "#FBBF24", "light": "#B45309"}
 DEFAULT_THEME = "dark"
 DEFAULT_LANGUAGE = "tr"
 DEFAULT_SCALE = 2

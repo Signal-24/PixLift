@@ -46,7 +46,7 @@ from .tools import check_tools_available
 from .widgets import AnimatedProgressBar
 from .worker import UpscaleWorker
 
-_CHIP_TEXT_COLOR = "#06202b"
+_CHIP_TEXT_COLOR = "#2b1400"
 _STOP_COLOR = "#ef4444"
 
 
@@ -54,7 +54,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PixLift")
-        self.setMinimumWidth(640)
+        self.setMinimumSize(640, 760)
         self.setAcceptDrops(True)
 
         cfg = load_config()
@@ -188,6 +188,7 @@ class MainWindow(QMainWindow):
         self.audio_card = QFrame()
         self.audio_card.setObjectName("card")
         audio_layout = QVBoxLayout(self.audio_card)
+        audio_layout.setSpacing(3)
         self.audio_off = QRadioButton()
         self.audio_auto = QRadioButton()
         self.audio_25 = QRadioButton()

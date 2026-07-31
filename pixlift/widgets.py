@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QWidget
 class AnimatedProgressBar(QWidget):
     """Renkli, kayan gradyanli ilerleme cubugu - islemin gorsel olarak 'canli' hissettirmesi icin."""
 
-    WAVE_COLORS = [QColor("#22D3EE"), QColor("#818CF8"), QColor("#34D399"), QColor("#22D3EE")]
+    WAVE_COLORS = [QColor("#FBBF24"), QColor("#F97316"), QColor("#FDE68A"), QColor("#FBBF24")]
 
     def __init__(self, parent=None):
         super().__init__(parent)

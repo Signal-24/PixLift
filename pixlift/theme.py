@@ -8,26 +8,26 @@ PALETTES = {
     "dark": {
         "bg": "#1e1f22",
         "card": "#2a2c30",
-        "border": "rgba(34, 211, 238, 0.35)",
+        "border": "rgba(251, 191, 36, 0.35)",
         "disabled_bg": "#3a3d42",
         "text": "#e8e8e8",
         "muted": "#9aa0a6",
-        "accent_hover": "#5eead4",
-        "accent_pressed": "#0e8a9c",
+        "accent_hover": "#fcd34d",
+        "accent_pressed": "#d97706",
         "input_bg": "#26282c",
-        "chip_text": "#06202b",
+        "chip_text": "#2b1400",
     },
     "light": {
         "bg": "#f3f5f7",
         "card": "#ffffff",
-        "border": "rgba(8, 145, 178, 0.35)",
+        "border": "rgba(180, 83, 9, 0.35)",
         "disabled_bg": "#dde1e6",
         "text": "#1f2124",
         "muted": "#5f6368",
-        "accent_hover": "#22d3ee",
-        "accent_pressed": "#067a8c",
+        "accent_hover": "#d97706",
+        "accent_pressed": "#92400e",
         "input_bg": "#ffffff",
-        "chip_text": "#06202b",
+        "chip_text": "#2b1400",
     },
 }
 
@@ -122,12 +122,12 @@ def build_stylesheet(theme):
         padding-left: 2px;
     }}
     QRadioButton#choiceChip {{
-        padding: 6px 12px;
+        padding: 5px 10px;
         spacing: 0px;
         border-radius: 8px;
         border: 1px solid transparent;
         background: {c['input_bg']};
-        color: {c['muted']};
+        color: {c['text']};
         font-weight: 600;
     }}
     QRadioButton#choiceChip::indicator {{
@@ -167,7 +167,7 @@ def build_stylesheet(theme):
     QPushButton#runButton {{
         background: {accent};
         border: none;
-        color: #06202b;
+        color: {c['chip_text']};
         font-size: 14px;
         padding: 11px 16px;
         border-radius: 9px;
