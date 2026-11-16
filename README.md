@@ -14,6 +14,10 @@ PySide6 UI — Turkish / English, dark / light theme.
 - Completion sound
 - Language: TR / EN
 - Locks preferences while a job is running
+- **Output validation:** Real-ESRGAN can exit with code 0 yet write a black/blank image (GPU memory or
+  driver errors). PixLift checks every result against the source, never leaves a bad file next to your
+  original, and automatically retries with smaller tile sizes (`-t 128 / 64 / 32`) before reporting an error.
+  For videos/GIFs the first frames are checked early and the frame count is verified before merging.
 
 ## Requirements
 

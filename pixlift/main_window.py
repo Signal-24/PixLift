@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
         self.queue_pos = 0
         self._queue_running = False
         self.worker = None
+        self._retired_workers = []  # bitmemis eski worker'lar (QThread cop toplayiciya kaptirilmasin)
         self.output_path = None
         self.apply_theme()
 
@@ -771,6 +772,11 @@ class MainWindow(QMainWindow):
         self.update_eta()
         self.eta_timer.start(1000)
 
+        # Onceki worker sinyali yolladiktan sonra run() sonundaki temizligi hala suruyor
+        # olabilir; referansi birakirsak calisan QThread yok edilir.
+        self._retired_workers = [w for w in self._retired_workers if w.isRunning()]
+        if self.worker is not None and self.worker.isRunning():
+            self._retired_workers.append(self.worker)
         self.worker = UpscaleWorker(
             path,
             scale,

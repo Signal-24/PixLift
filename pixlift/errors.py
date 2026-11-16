@@ -7,6 +7,15 @@ class PipelineError(Exception):
     """Kullaniciya gosterilecek kisa ozet + (varsa) ffmpeg log kuyrugu."""
 
 
+class EngineOutputError(PipelineError):
+    """Motor calisti ama ciktisi gecersiz (siyah/bos/eksik). `reason` kisa sebep kodudur."""
+
+    def __init__(self, reason, detail=""):
+        super().__init__(reason)
+        self.reason = reason
+        self.detail = detail
+
+
 def format_error(summary, stderr):
     """Kisa ozet + son ~800 karakterlik stderr kuyrugunu tek mesajda birlestir."""
     tail = (stderr or "")[-800:].strip()

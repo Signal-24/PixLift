@@ -9,19 +9,24 @@ import time
 from PySide6.QtCore import QThread, Signal
 
 from . import tools
-from .errors import PipelineError, format_error, run_ffmpeg
+from .errors import EngineOutputError, PipelineError, format_error, run_ffmpeg
 from .media import (
     BENCHMARKS,
     STALL_TIMEOUT_MIN_SECONDS,
     STALL_TIMEOUT_SECONDS,
+    TILE_FALLBACKS,
     analyze_audio_gain,
     engine_scale_for,
+    engine_stderr_problem,
     estimate_seconds_per_frame,
     format_duration,
     image_output_format,
+    image_sample,
     is_gif_file,
     is_image_file,
+    looks_corrupt,
     needs_post_downscale,
+    output_problem,
     probe_image,
     probe_video,
     stall_timeout_for_job,
@@ -63,23 +68,67 @@ class UpscaleWorker(QThread):
     def _duration_units(self):
         return {"sec": self.t("unit_sec"), "min": self.t("unit_min"), "hr": self.t("unit_hr")}
 
-    def _wait_realesrgan(self, proc, frames_out, total_frames, stall_limit, stderr_path):
+    @staticmethod
+    def _kill(proc):
+        proc.kill()
+        try:
+            proc.wait(timeout=10)  # dosya tutamaklari birakilsin (yeniden deneme / temizlik icin)
+        except subprocess.TimeoutExpired:
+            pass
+
+    @staticmethod
+    def _read_tail(path, limit=800):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()[-limit:]
+        except OSError:
+            return ""
+
+    @staticmethod
+    def _sorted_frames(folder):
+        return sorted(f for f in os.listdir(folder) if f.endswith(".png"))
+
+    def _early_frame_check(self, frames_in, frames_out):
+        """Ilk biten karelerden birini girisle karsilastir.
+
+        True: dogrulandi, False: henuz okunamadi (dosya yarim olabilir), bozuksa
+        EngineOutputError firlatir. Boylece saatler surecek bir isi bastan durdururuz.
+        """
+        names = self._sorted_frames(frames_out)
+        if len(names) < 2:
+            return False
+        name = names[0]  # en dusuk numara: sonrakiler de bittigine gore tam yazilmistir
+        out_sample = image_sample(os.path.join(frames_out, name))
+        if out_sample is None:
+            return False
+        if looks_corrupt(image_sample(os.path.join(frames_in, name)), out_sample):
+            raise EngineOutputError("blank_output")
+        return True
+
+    def _wait_realesrgan(self, proc, frames_in, frames_out, total_frames, stall_limit, stderr_path):
         """Real-ESRGAN bitene kadar izle; kare ilerlemesi yoksa stall_limit sonra kes.
 
         stderr dosyaya yazilir (PIPE + okumamak Windows'ta sureci kilitleyebilir).
         """
         last_done = 0
         last_progress_time = time.time()
+        early_checked = False
         while proc.poll() is None:
             if self._cancelled:
-                proc.kill()
+                self._kill(proc)
                 return False
-            done = len([f for f in os.listdir(frames_out) if f.endswith(".png")])
+            done = len(self._sorted_frames(frames_out))
+            if not early_checked and done >= 2:
+                try:
+                    early_checked = self._early_frame_check(frames_in, frames_out)
+                except EngineOutputError:
+                    self._kill(proc)
+                    raise
             if done != last_done:
                 last_done = done
                 last_progress_time = time.time()
             elif time.time() - last_progress_time > stall_limit:
-                proc.kill()
+                self._kill(proc)
                 stderr_tail = ""
                 try:
                     with open(stderr_path, "r", encoding="utf-8", errors="replace") as f:
@@ -95,7 +144,7 @@ class UpscaleWorker(QThread):
             time.sleep(0.5)
         return True
 
-    def _run_realesrgan_frames(self, frames_in, frames_out, model, scale, stall_limit, total_frames):
+    def _run_realesrgan_frames(self, frames_in, frames_out, model, scale, stall_limit, total_frames, tile=0):
         stderr_path = os.path.join(os.path.dirname(frames_out), "realesrgan_stderr.log")
         engine_scale = engine_scale_for(model, scale)
         with open(stderr_path, "w", encoding="utf-8", errors="replace") as stderr_file:
@@ -106,7 +155,7 @@ class UpscaleWorker(QThread):
                     "-o", frames_out,
                     "-n", model,
                     "-s", str(engine_scale),
-                    "-t", "0",
+                    "-t", str(tile),
                     "-f", "png",
                 ],
                 cwd=os.path.dirname(tools.REALESRGAN_EXE),
@@ -115,26 +164,72 @@ class UpscaleWorker(QThread):
                 stderr=stderr_file,
                 creationflags=tools.NO_CREATE_WINDOW,
             )
-            alive = self._wait_realesrgan(proc, frames_out, total_frames, stall_limit, stderr_path)
+            alive = self._wait_realesrgan(proc, frames_in, frames_out, total_frames, stall_limit, stderr_path)
 
         if not alive:
             return False
 
+        stderr_tail = self._read_tail(stderr_path)
         if proc.returncode != 0:
-            stderr_tail = ""
-            try:
-                with open(stderr_path, "r", encoding="utf-8", errors="replace") as f:
-                    stderr_tail = f.read()[-800:]
-            except OSError:
-                pass
-            raise PipelineError(format_error(self.t("w_upscale_failed"), stderr_tail))
+            raise EngineOutputError("exit_code", stderr_tail)
+
+        # Motor 0 ile cikip kare yazmamis / siyah yazmis olabilir: cikis koduna guvenme.
+        problem = engine_stderr_problem(stderr_tail)
+        if problem == "decode_failed":
+            raise EngineOutputError(problem, stderr_tail)
+        names = self._sorted_frames(frames_out)
+        if len(names) < total_frames:
+            raise EngineOutputError("missing_frames", f"{len(names)}/{total_frames}\n{stderr_tail}")
+        # Son kare (en son yazilan) girisle uyumlu mu?
+        last = names[-1]
+        if looks_corrupt(
+            image_sample(os.path.join(frames_in, last)),
+            image_sample(os.path.join(frames_out, last)),
+        ):
+            raise EngineOutputError("blank_output", stderr_tail)
+        if problem == "gpu_error":
+            raise EngineOutputError(problem, stderr_tail)
         return True
+
+    def _upscale_frames_with_fallback(self, frames_in, frames_out, model, scale, stall_limit, total_frames):
+        """Kareleri buyut; cikti bozuksa daha kucuk parca (tile) boyutuyla otomatik yeniden dene.
+
+        Iptal edilirse False doner. Tum denemeler basarisizsa PipelineError firlatir.
+        """
+        last_error = None
+        for index, tile in enumerate(TILE_FALLBACKS):
+            for name in os.listdir(frames_out):  # onceki denemeden kalanlari temizle
+                try:
+                    os.remove(os.path.join(frames_out, name))
+                except OSError:
+                    pass
+            try:
+                return self._run_realesrgan_frames(
+                    frames_in, frames_out, model, scale, stall_limit, total_frames, tile=tile
+                )
+            except EngineOutputError as e:
+                last_error = e
+                if e.reason == "decode_failed" or index == len(TILE_FALLBACKS) - 1:
+                    break
+                self.log(
+                    self.t(
+                        "w_retry_tile",
+                        reason=self.t("reason_" + e.reason),
+                        tile=TILE_FALLBACKS[index + 1],
+                    )
+                )
+        raise PipelineError(
+            format_error(
+                self.t("w_output_bad", reason=self.t("reason_" + last_error.reason)),
+                last_error.detail,
+            )
+        )
 
     def run(self):
         temp_dir = tempfile.mkdtemp(prefix="pixlift_")
         try:
             if is_image_file(self.input_path):
-                self._run_image_pipeline()
+                self._run_image_pipeline(temp_dir)
             elif is_gif_file(self.input_path):
                 self._run_gif_pipeline(temp_dir)
             else:
@@ -150,7 +245,42 @@ class UpscaleWorker(QThread):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def _run_image_pipeline(self):
+    def _engine_photo_once(
+        self, work_path, model, engine_scale, engine_format, tile, estimated_total, stall_limit, stderr_path
+    ):
+        """Motoru bir kez calistir. Iptal edilirse None, aksi halde (cikis_kodu, stderr) doner."""
+        start = time.time()
+        with open(stderr_path, "w", encoding="utf-8", errors="replace") as stderr_file:
+            proc = subprocess.Popen(
+                [
+                    tools.REALESRGAN_EXE,
+                    "-i", self.input_path,
+                    "-o", work_path,
+                    "-n", model,
+                    "-s", str(engine_scale),
+                    "-t", str(tile),
+                    "-f", engine_format,
+                ],
+                cwd=os.path.dirname(tools.REALESRGAN_EXE),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=stderr_file,
+                creationflags=tools.NO_CREATE_WINDOW,
+            )
+            while proc.poll() is None:
+                if self._cancelled:
+                    self._kill(proc)
+                    return None
+                elapsed = time.time() - start
+                if elapsed > stall_limit:
+                    self._kill(proc)
+                    raise PipelineError(self.t("w_stall_photo"))
+                pct = 5 + int(90 * min(elapsed / estimated_total, 1.0))
+                self.progress.emit(min(pct, 95))
+                time.sleep(0.2)
+        return proc.returncode, self._read_tail(stderr_path, limit=4000)
+
+    def _run_image_pipeline(self, temp_dir):
         info = probe_image(self.input_path)
         model = BENCHMARKS[self.quality_key]["model"]
         engine_scale = engine_scale_for(model, self.scale)
@@ -164,79 +294,61 @@ class UpscaleWorker(QThread):
         base, ext = os.path.splitext(self.input_path)
         out_ext = image_output_format(ext)
         output_path = f"{base}_PixLift_{self.scale}x.{out_ext}"
-        work_path = output_path
-        if post_downscale:
-            work_path = os.path.join(
-                tempfile.gettempdir(),
-                f"pixlift_img_{os.getpid()}_x{engine_scale}.png",
-            )
+        # Hicbir ara/bozuk sonuc nihai klasore yazilmaz: once gecici klasore yazilir,
+        # dogrulandiktan sonra tasinir.
+        engine_format = "png" if post_downscale else out_ext
+        work_path = os.path.join(temp_dir, f"engine_out.{engine_format}")
+        result_path = os.path.join(temp_dir, f"result.{out_ext}") if post_downscale else work_path
+        stderr_path = os.path.join(temp_dir, "realesrgan_stderr.log")
 
         scale_note = f"{engine_scale}x→{self.scale}x" if post_downscale else f"{self.scale}x"
         self.status.emit(self.t("w_upscaling_photo", model=model, scale_note=scale_note))
         self.progress.emit(5)
 
-        start = time.time()
-        stderr_path = os.path.join(tempfile.gettempdir(), f"pixlift_img_{os.getpid()}.log")
-        with open(stderr_path, "w", encoding="utf-8", errors="replace") as stderr_file:
-            proc = subprocess.Popen(
-                [
-                    tools.REALESRGAN_EXE,
-                    "-i", self.input_path,
-                    "-o", work_path,
-                    "-n", model,
-                    "-s", str(engine_scale),
-                    "-t", "0",
-                    "-f", "png" if post_downscale else out_ext,
-                ],
-                cwd=os.path.dirname(tools.REALESRGAN_EXE),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=stderr_file,
-                creationflags=tools.NO_CREATE_WINDOW,
+        stall_limit = max(estimated_total * 4, STALL_TIMEOUT_SECONDS, STALL_TIMEOUT_MIN_SECONDS)
+        input_sample = image_sample(self.input_path)
+        reason, detail = None, ""
+        # Motor siyah/bos cikti yazip 0 ile cikabiliyor (GPU bellegi/surucu); cikis koduna
+        # guvenmeyip ciktiyi dogrular, bozuksa daha kucuk parca boyutuyla yeniden deneriz.
+        for index, tile in enumerate(TILE_FALLBACKS):
+            if os.path.exists(work_path):
+                os.remove(work_path)
+            outcome = self._engine_photo_once(
+                work_path, model, engine_scale, engine_format, tile,
+                estimated_total, stall_limit, stderr_path,
             )
-            stall_limit = max(estimated_total * 4, STALL_TIMEOUT_SECONDS, STALL_TIMEOUT_MIN_SECONDS)
-            while proc.poll() is None:
-                if self._cancelled:
-                    proc.kill()
-                    return
-                elapsed = time.time() - start
-                if elapsed > stall_limit:
-                    proc.kill()
-                    raise PipelineError(self.t("w_stall_photo"))
-                pct = 5 + int(90 * min(elapsed / estimated_total, 1.0))
-                self.progress.emit(min(pct, 95))
-                time.sleep(0.2)
-
-        if proc.returncode != 0:
-            stderr_tail = ""
-            try:
-                with open(stderr_path, "r", encoding="utf-8", errors="replace") as f:
-                    stderr_tail = f.read()[-800:]
-            except OSError:
-                pass
-            raise PipelineError(format_error(self.t("w_upscale_failed"), stderr_tail))
+            if outcome is None:  # iptal
+                return
+            returncode, stderr_text = outcome
+            reason = output_problem(self.input_path, work_path, returncode, stderr_text, input_sample)
+            detail = stderr_text[-800:]
+            if reason is None or reason == "decode_failed" or index == len(TILE_FALLBACKS) - 1:
+                break
+            self.status.emit(
+                self.t("w_retry_tile", reason=self.t("reason_" + reason), tile=TILE_FALLBACKS[index + 1])
+            )
+        if reason is not None:
+            raise PipelineError(
+                format_error(self.t("w_output_bad", reason=self.t("reason_" + reason)), detail)
+            )
 
         if post_downscale:
             if self._cancelled:
                 return
             self.status.emit(self.t("w_downscaling_photo", scale=self.scale))
             tw, th = target_size(info, self.scale)
-            # Basarisiz olsa bile work_path her zaman temizlenmeli; bu yuzden
-            # run_ffmpeg yerine burada dogrudan run_hidden kullaniliyor.
-            result = run_hidden(
+            run_ffmpeg(
                 [
                     tools.FFMPEG_EXE, "-y", "-i", work_path,
                     "-vf", f"scale={tw}:{th}:flags=lanczos",
-                    output_path,
-                ]
+                    result_path,
+                ],
+                self.t("w_resize_failed"),
             )
-            try:
-                os.remove(work_path)
-            except OSError:
-                pass
-            if result.returncode != 0:
-                raise PipelineError(format_error(self.t("w_resize_failed"), result.stderr))
 
+        if self._cancelled:
+            return
+        shutil.move(result_path, output_path)
         self.progress.emit(100)
         self.finished_ok.emit(output_path)
 
@@ -329,7 +441,7 @@ class UpscaleWorker(QThread):
                 stall=int(stall_limit),
             )
         )
-        if not self._run_realesrgan_frames(
+        if not self._upscale_frames_with_fallback(
             frames_in, frames_out, model, self.scale, stall_limit, total_frames
         ):
             return
@@ -422,7 +534,7 @@ class UpscaleWorker(QThread):
             else f"{self.scale}x"
         )
         self.log(self.t("w_upscaling_gif", model=model, scale_note=scale_note, stall=int(stall_limit)))
-        if not self._run_realesrgan_frames(
+        if not self._upscale_frames_with_fallback(
             frames_in, frames_out, model, self.scale, stall_limit, total_frames
         ):
             return

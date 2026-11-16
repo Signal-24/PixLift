@@ -109,6 +109,22 @@ STRINGS = {
         "w_resize_failed": "Boyut ayarı başarısız",
         "w_merging_gif": "GIF yeniden birleştiriliyor...",
         "w_unexpected_error": "Beklenmeyen hata: {error}",
+        "w_retry_tile": (
+            "Çıktı geçersiz ({reason}) - "
+            "daha küçük parça boyutuyla ({tile}) yeniden deneniyor..."
+        ),
+        "w_output_bad": (
+            "Büyütme geçerli bir çıktı üretemedi ({reason}). "
+            "GPU sürücüsünü güncelleyin, GPU kullanan diğer uygulamaları kapatın "
+            "ve tekrar deneyin; sürerse Hızlı modeli deneyin."
+        ),
+        "reason_exit_code": "motor hata kodu verdi",
+        "reason_decode_failed": "görsel motor tarafından okunamadı",
+        "reason_gpu_error": "GPU hatası",
+        "reason_no_output": "çıktı dosyası oluşmadı",
+        "reason_unreadable": "çıktı dosyası okunamadı",
+        "reason_blank_output": "siyah veya boş çıktı",
+        "reason_missing_frames": "eksik kareler",
         "queue_pending": "Bekliyor",
         "queue_processing": "İşleniyor",
         "queue_done": "Tamam",
@@ -205,6 +221,22 @@ STRINGS = {
         "w_resize_failed": "Resize failed",
         "w_merging_gif": "Re-merging GIF...",
         "w_unexpected_error": "Unexpected error: {error}",
+        "w_retry_tile": (
+            "Invalid output ({reason}) - "
+            "retrying with a smaller tile size ({tile})..."
+        ),
+        "w_output_bad": (
+            "Upscaling did not produce a valid result ({reason}). "
+            "Update your GPU driver, close other apps that use the GPU, "
+            "and try again; if it persists, try the Fast model."
+        ),
+        "reason_exit_code": "the engine returned an error code",
+        "reason_decode_failed": "the engine could not read the image",
+        "reason_gpu_error": "GPU error",
+        "reason_no_output": "no output file was created",
+        "reason_unreadable": "the output file could not be read",
+        "reason_blank_output": "black or blank output",
+        "reason_missing_frames": "missing frames",
         "queue_pending": "Pending",
         "queue_processing": "Processing",
         "queue_done": "Done",
