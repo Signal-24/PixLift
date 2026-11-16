@@ -39,7 +39,7 @@ Long / high-resolution videos benefit from **32 GB** RAM. Upscaling is GPU-bound
 ## Quick start
 
 ```bash
-git clone https://github.com/Mendocan/PixLift.git
+git clone https://github.com/Signal-24/PixLift.git
 cd PixLift
 ```
 
